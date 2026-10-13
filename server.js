@@ -13,8 +13,9 @@ mongoose
   .then(() => console.log("MongoDB Conectado!"))
   .catch((err) => console.error("Erro de conexão:", err));
 
-// Schema e Model
+// Schema e Model atualizados com userId
 const ConsultaSchema = new mongoose.Schema({
+  userId: { type: String, required: true }, // Identificador do usuário do Supabase
   petNome: { type: String, required: true },
   raca: { type: String, required: true },
   tipoConsulta: { type: String, required: true },
@@ -25,18 +26,28 @@ const ConsultaSchema = new mongoose.Schema({
 const Consulta = mongoose.model("Consulta", ConsultaSchema);
 
 // Rotas API
+// Busca consultas filtrando estritamente pelo userId recebido na query
 app.get("/api/consultas", async (req, res) => {
   try {
-    const consultas = await Consulta.find().sort({ _id: -1 });
+    const { userId } = req.query;
+    if (!userId) {
+      return res.status(400).json({ error: "userId é obrigatório" });
+    }
+    const consultas = await Consulta.find({ userId }).sort({ _id: -1 });
     res.json(consultas);
   } catch (error) {
     res.status(500).json({ error: "Erro ao buscar consultas" });
   }
 });
 
+// Cadastra a consulta associando ao userId enviado no corpo da requisição
 app.post("/api/consultas", async (req, res) => {
   try {
-    const nova = new Consulta(req.body);
+    const { userId, petNome, raca, tipoConsulta, dataDaVacina } = req.body;
+    if (!userId) {
+      return res.status(400).json({ error: "userId é obrigatório" });
+    }
+    const nova = new Consulta({ userId, petNome, raca, tipoConsulta, dataDaVacina });
     await nova.save();
     res.status(201).json(nova);
   } catch (error) {
