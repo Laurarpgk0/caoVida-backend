@@ -23,59 +23,64 @@ const ConsultaSchema = new mongoose.Schema({
   applied: { type: Boolean, default: false },
 });
 
-const Consulta = mongoose.model("Consulta", ConsultaSchema);
+const { createClient } = require("@supabase/supabase-js");
 
-// Rotas API
-// Busca consultas filtrando estritamente pelo userId recebido na query
-app.get("/api/consultas", async (req, res) => {
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_PUBLISHABLE_KEY,
+  { auth: { persistSession: false } }
+);
+
+async function auth(req, res, next) {
+  const token = (req.headers.authorization || "").replace("Bearer ", "");
+  if (!token) return res.status(401).json({ error: "Token ausente" });
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user) return res.status(401).json({ error: "Token inválido" });
+  req.userId = data.user.id;
+  next();
+}
+
+app.get("/health", (_, res) => res.json({ status: "ok" }));
+
+app.get("/api/consultas", auth, async (req, res) => {
   try {
-    const { userId } = req.query;
-    if (!userId) {
-      return res.status(400).json({ error: "userId é obrigatório" });
-    }
-    const consultas = await Consulta.find({ userId }).sort({ _id: -1 });
-    res.json(consultas);
-  } catch (error) {
+    res.json(await Consulta.find({ userId: req.userId }).sort({ _id: -1 }));
+  } catch {
     res.status(500).json({ error: "Erro ao buscar consultas" });
   }
 });
 
-// Cadastra a consulta associando ao userId enviado no corpo da requisição
-app.post("/api/consultas", async (req, res) => {
+app.post("/api/consultas", auth, async (req, res) => {
   try {
-    const { userId, petNome, raca, tipoConsulta, dataDaVacina } = req.body;
-    if (!userId) {
-      return res.status(400).json({ error: "userId é obrigatório" });
-    }
-    const nova = new Consulta({ userId, petNome, raca, tipoConsulta, dataDaVacina });
+    const { petNome, raca, tipoConsulta, dataDaVacina } = req.body;
+    const nova = new Consulta({ userId: req.userId, petNome, raca, tipoConsulta, dataDaVacina });
     await nova.save();
     res.status(201).json(nova);
-  } catch (error) {
+  } catch {
     res.status(400).json({ error: "Erro ao salvar consulta" });
   }
 });
 
-app.patch("/api/consultas/:id", async (req, res) => {
+app.patch("/api/consultas/:id", auth, async (req, res) => {
   try {
-    const atualizada = await Consulta.findByIdAndUpdate(
-      req.params.id,
+    const item = await Consulta.findOneAndUpdate(
+      { _id: req.params.id, userId: req.userId },
       { applied: true },
-      { new: true },
+      { new: true }
     );
-    res.json(atualizada);
-  } catch (error) {
+    if (!item) return res.status(404).json({ error: "Não encontrada" });
+    res.json(item);
+  } catch {
     res.status(400).json({ error: "Erro ao atualizar" });
   }
 });
 
-app.delete("/api/consultas/:id", async (req, res) => {
+app.delete("/api/consultas/:id", auth, async (req, res) => {
   try {
-    await Consulta.findByIdAndDelete(req.params.id);
+    const item = await Consulta.findOneAndDelete({ _id: req.params.id, userId: req.userId });
+    if (!item) return res.status(404).json({ error: "Não encontrada" });
     res.json({ message: "Removido com sucesso" });
-  } catch (error) {
+  } catch {
     res.status(400).json({ error: "Erro ao deletar" });
   }
 });
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
