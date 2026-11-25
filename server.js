@@ -83,6 +83,7 @@ app.delete("/api/consultas/:id", auth, async (req, res) => {
   } catch {
     res.status(400).json({ error: "Erro ao deletar" });
   }
-  const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+  
 });
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
