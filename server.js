@@ -48,25 +48,82 @@ const supabase = createClient(
 );
 
 async function auth(req, res, next) {
-  const token = (req.headers.authorization || "").replace("Bearer ", "");
+  const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
 
   if (!token) {
     return res.status(401).json({ error: "Token ausente" });
   }
 
-  const { data, error } = await supabase.auth.getUser(token);
+  try {
+    const { data, error } = await supabase.auth.getUser(token);
 
-  if (error || !data?.user) {
-    console.log("auth error:", error?.message);
+    if (error || !data?.user) {
+      return res.status(401).json({
+        error: "Token inválido",
+      });
+    }
 
-    return res.status(401).json({
-      error: "Token inválido",
-      detalhe: error?.message,
+    const userSupabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_PUBLISHABLE_KEY,
+      {
+        global: {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      }
+    );
+
+    const { data: profile, error: profileError } = await userSupabase
+      .from("profiles")
+      .select("role")
+      .eq("id", data.user.id)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error("Erro ao buscar perfil:", profileError.message);
+
+      return res.status(500).json({
+        error: "Não foi possível verificar o perfil.",
+      });
+    }
+
+    if (!profile || !["aluno", "administrador"].includes(profile.role)) {
+      return res.status(403).json({
+        error: "Perfil sem autorização.",
+      });
+    }
+
+    req.userId = data.user.id;
+    req.role = profile.role;
+    req.userEmail = data.user.email;
+
+    next();
+  } catch (err) {
+    console.error("Erro na autenticação:", err);
+
+    return res.status(500).json({
+      error: "Erro ao validar autenticação.",
     });
   }
+}
 
-  req.userId = data.user.id;
-  next();
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!roles.includes(req.role)) {
+      return res.status(403).json({
+        error: "Você não tem permissão para acessar esta funcionalidade.",
+      });
+    }
+
+    next();
+  };
 }
 
 app.get("/health", (_, res) => {
@@ -90,6 +147,34 @@ app.get("/api/consultas", auth, async (req, res) => {
     });
   }
 });
+app.get(
+  "/api/admin/resumo",
+  auth,
+  requireRole("administrador"),
+  async (req, res) => {
+    try {
+      const totalConsultas = await Consulta.countDocuments();
+
+      const totalAplicadas = await Consulta.countDocuments({
+        applied: true,
+      });
+
+      return res.json({
+        mensagem: "Acesso administrativo autorizado",
+        administrador: req.userEmail,
+        perfil: req.role,
+        totalConsultas,
+        totalAplicadas,
+      });
+    } catch (err) {
+      console.error("GET /api/admin/resumo:", err);
+
+      return res.status(500).json({
+        error: "Erro ao carregar resumo administrativo.",
+      });
+    }
+  }
+);
 
 app.post("/api/consultas", auth, async (req, res) => {
   try {
