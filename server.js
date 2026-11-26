@@ -147,6 +147,7 @@ app.get("/api/consultas", auth, async (req, res) => {
     });
   }
 });
+
 app.get(
   "/api/admin/resumo",
   auth,
@@ -171,6 +172,69 @@ app.get(
 
       return res.status(500).json({
         error: "Erro ao carregar resumo administrativo.",
+      });
+    }
+  }
+);
+
+app.get(
+  "/api/admin/consultas",
+  auth,
+  requireRole("administrador"),
+  async (req, res) => {
+    try {
+      const token = (req.headers.authorization || "").replace(
+        /^Bearer\s+/i,
+        ""
+      );
+
+      const userSupabase = createClient(
+        process.env.SUPABASE_URL,
+        process.env.SUPABASE_PUBLISHABLE_KEY,
+        {
+          global: {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+          },
+        }
+      );
+
+      const { data: profiles, error: profileError } =
+        await userSupabase.rpc("admin_list_profiles");
+
+      if (profileError) {
+        console.error("Erro ao buscar responsáveis:", profileError);
+
+        return res.status(500).json({
+          error: "Erro ao buscar responsáveis pelas consultas.",
+        });
+      }
+
+      const consultas = await Consulta.find().sort({
+        _id: -1,
+      });
+
+      const profilesMap = new Map(
+        (profiles || []).map((profile) => [profile.id, profile])
+      );
+
+      const resultado = consultas.map((consulta) => ({
+        ...consulta.toObject(),
+        responsavel: profilesMap.get(consulta.userId) || null,
+      }));
+
+      return res.json(resultado);
+    } catch (err) {
+      console.error("GET /api/admin/consultas:", err);
+
+      return res.status(500).json({
+        error: "Erro ao buscar consultas administrativas.",
       });
     }
   }
